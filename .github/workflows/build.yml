@@ -25,8 +25,9 @@ jobs:
         run: |
           ./gradlew :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/build.log; ec=${PIPESTATUS[0]}
           if [ $ec -ne 0 ]; then
-            echo "=== WHAT WENT WRONG ==="
-            grep -A15 "What went wrong" /tmp/build.log | head -25 > /tmp/e.txt || true
+            echo "=== ERRORES KOTLIN ==="
+            grep -E "^e: " /tmp/build.log | head -15 > /tmp/e.txt || true
+            cat /tmp/e.txt
             echo "::error::$(cat /tmp/e.txt | tr '\n' ' ' | cut -c1-800)"
           fi
           exit $ec
