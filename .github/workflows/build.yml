@@ -22,15 +22,7 @@ jobs:
       - name: Permiso gradlew
         run: chmod +x gradlew
       - name: Tests
-        run: |
-          ./gradlew :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/build.log; ec=${PIPESTATUS[0]}
-          if [ $ec -ne 0 ]; then
-            echo "=== ERRORES KOTLIN ==="
-            grep -E "^e: " /tmp/build.log | head -15 > /tmp/e.txt || true
-            cat /tmp/e.txt
-            echo "::error::$(cat /tmp/e.txt | tr '\n' ' ' | cut -c1-800)"
-          fi
-          exit $ec
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
 
   build:
     name: Compilar APK debug

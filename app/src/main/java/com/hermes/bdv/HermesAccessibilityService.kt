@@ -566,7 +566,8 @@ class HermesAccessibilityService : AccessibilityService() {
                 buscarNodo { coincideDesc(it, desc) || coincideTexto(it, desc) }
             } else {
                 buscarNodo { esEditText(it) }
-            } ?: run {
+            }
+            if (nodo == null) {
                 esperar(400)
                 continue
             }
