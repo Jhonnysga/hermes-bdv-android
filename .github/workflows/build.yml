@@ -46,3 +46,11 @@ jobs:
           name: hermes-bdv-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+      - name: Publicar Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: debug-${{ github.sha }}
+          name: Hermes BDV debug ${{ github.sha }}
+          files: app/build/outputs/apk/debug/app-debug.apk
+          prerelease: true
