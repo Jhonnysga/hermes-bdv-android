@@ -22,7 +22,13 @@ jobs:
       - name: Permiso gradlew
         run: chmod +x gradlew
       - name: Tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        run: |
+          ./gradlew :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/build.log; ec=${PIPESTATUS[0]}
+          if [ $ec -ne 0 ]; then
+            grep -E "^e: |FAILED|Execution failed" /tmp/build.log | head -10 > /tmp/e.txt || true
+            echo "::error::$(cat /tmp/e.txt | tr '\n' ' ' | cut -c1-600)"
+          fi
+          exit $ec
 
   build:
     name: Compilar APK debug
