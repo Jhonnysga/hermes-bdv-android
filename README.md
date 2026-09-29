@@ -47,3 +47,4 @@ El APK queda en los artifacts del workflow.
 - Internet (avisos Telegram)
 - Alarmas exactas + arranque completado (programación)
 - Notificaciones
+
