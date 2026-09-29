@@ -6,11 +6,15 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -133,108 +137,136 @@ class MainActivity : AppCompatActivity() {
         switchAvisos.isChecked = Config.isAvisosActivos(this)
     }
 
+    // -------------------------------------------------------- UI profesional
+
     private fun buildUI(cont: LinearLayout) {
-        cont.addView(titulo("Hermes BDV", 24f))
+        // Encabezado
+        cont.addView(header())
 
-        // --- Estado del servicio de accesibilidad ---
-        cont.addView(seccion("Estado"))
-        txtEstadoAccesibilidad = texto("")
-        cont.addView(txtEstadoAccesibilidad)
-        cont.addView(boton("Abrir ajustes de accesibilidad") {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        })
-
-        // --- Monto ---
-        cont.addView(seccion("Monto (USD por operación)"))
-        val etMonto = campo(Config.getMonto(this), InputType.TYPE_CLASS_NUMBER)
-        cont.addView(etMonto)
-        cont.addView(boton("Guardar monto") {
-            val v = etMonto.text.toString().trim()
-            if (v.isEmpty()) {
-                toast("Escribe un monto válido")
-            } else {
-                Config.setMonto(this, v)
-                toast("Monto guardado: $v USD")
-                agregarRegistro("Monto configurado: $v USD")
+        // Estado del servicio
+        cont.addView(card().apply {
+            addView(cardTitle("Servicio de accesibilidad"))
+            txtEstadoAccesibilidad = TextView(this@MainActivity).apply {
+                textSize = 14f
             }
+            addView(txtEstadoAccesibilidad)
+            addView(secondaryButton("Abrir ajustes de accesibilidad") {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            })
         })
 
-        // --- Telegram ---
-        cont.addView(seccion("Telegram"))
-        val etToken = campo(Config.getTokenTelegram(this)).apply {
-            hint = "Token del bot"
-        }
-        cont.addView(etToken)
-        val chatGuardado = Config.getChatTelegram(this)
-        val etChat = campo(if (chatGuardado == 0L) "" else chatGuardado.toString()).apply {
-            hint = "Chat ID"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
-        }
-        cont.addView(etChat)
-        cont.addView(boton("Guardar Telegram") {
-            Config.setTokenTelegram(this, etToken.text.toString())
-            val chat = etChat.text.toString().trim().toLongOrNull() ?: 0L
-            Config.setChatTelegram(this, chat)
-            toast("Telegram guardado")
-            agregarRegistro("Telegram configurado (chat $chat)")
-        })
-
-        // --- Programar rango ---
-        cont.addView(seccion("Programar (rango de días hábiles)"))
-        btnIniFecha = boton("Inicio: sin elegir") { elegirFechaHora(true) }
-        cont.addView(btnIniFecha)
-        btnFinFecha = boton("Cierre: sin elegir") { elegirFechaHora(false) }
-        cont.addView(btnFinFecha)
-        cont.addView(boton("Programar rango") { programarRango() })
-
-        // --- Lista de programaciones ---
-        cont.addView(seccion("Programadas"))
-        txtListaProgramaciones = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        cont.addView(txtListaProgramaciones)
-        cont.addView(boton("Borrar todas las programaciones") {
-            confirmar("¿Borrar todas las programaciones?") {
-                Scheduler.cancelarTodos(this)
-                refrescarProgramaciones()
-                agregarRegistro("Programaciones borradas.")
+        // Monto
+        cont.addView(card().apply {
+            addView(cardTitle("Monto por operación"))
+            val etMonto = styledField(Config.getMonto(this@MainActivity)).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER
+                hint = "USD (1 – 500)"
             }
+            addView(etMonto)
+            addView(primaryButton("Guardar monto") {
+                val v = etMonto.text.toString().trim()
+                if (!LogicaPura.validarMonto(v)) {
+                    toast("Monto inválido (1 – 500 USD)")
+                } else {
+                    Config.setMonto(this@MainActivity, v)
+                    toast("Monto guardado: $v USD")
+                    agregarRegistro("Monto configurado: $v USD")
+                }
+            })
         })
 
-        // --- Ejecución ---
-        cont.addView(seccion("Ejecución"))
-        cont.addView(boton("▶ Ejecutar ahora") { flujoEjecutarAhora() })
-        cont.addView(boton("⏹ Detener") { flujoDetener() })
+        // Programar
+        cont.addView(card().apply {
+            addView(cardTitle("Programar ejecuciones"))
+            addView(hintText("Un slot por día hábil (lun–vie) dentro del rango, a la hora de inicio."))
+            btnIniFecha = secondaryButton("Inicio: sin elegir") { elegirFechaHora(true) }
+            addView(btnIniFecha)
+            btnFinFecha = secondaryButton("Cierre: sin elegir") { elegirFechaHora(false) }
+            addView(btnFinFecha)
+            addView(primaryButton("Programar rango") { programarRango() })
+        })
 
-        // --- Avisos ---
-        cont.addView(seccion("Avisos"))
-        switchAvisos = Switch(this).apply {
-            text = "Avisos por Telegram"
-            isChecked = Config.isAvisosActivos(this@MainActivity)
-            setOnCheckedChangeListener { _, checked ->
-                Config.setAvisosActivos(this@MainActivity, checked)
-                agregarRegistro("Avisos ${if (checked) "activados" else "desactivados"}")
+        // Programadas
+        cont.addView(card().apply {
+            addView(cardTitle("Ejecuciones programadas"))
+            txtListaProgramaciones = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
             }
-        }
-        cont.addView(switchAvisos)
-        cont.addView(texto(
-            "Los avisos de pantalla y errores llegan solo como texto; " +
-                "la captura solo se envía al lograr la compra."
-        ))
+            addView(txtListaProgramaciones)
+            addView(dangerButton("Borrar todas") {
+                confirmar("¿Borrar todas las programaciones?") {
+                    Scheduler.cancelarTodos(this@MainActivity)
+                    refrescarProgramaciones()
+                    agregarRegistro("Programaciones borradas.")
+                }
+            })
+        })
 
-        // --- Registro ---
-        cont.addView(seccion("Registro de eventos"))
-        scrollRegistro = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(220)
-            )
-        }
-        txtRegistro = TextView(this).apply {
-            text = "—\n"
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-        }
-        scrollRegistro.addView(txtRegistro)
-        cont.addView(scrollRegistro)
+        // Ejecución manual
+        cont.addView(card().apply {
+            addView(cardTitle("Ejecución manual"))
+            addView(primaryButton("Ejecutar ahora") { flujoEjecutarAhora() })
+            addView(dangerButton("Detener") { flujoDetener() })
+        })
+
+        // Telegram
+        cont.addView(card().apply {
+            addView(cardTitle("Notificaciones Telegram"))
+            val etToken = styledField(Config.getTokenTelegram(this@MainActivity)).apply {
+                hint = "Token del bot"
+            }
+            addView(etToken)
+            val chatGuardado = Config.getChatTelegram(this@MainActivity)
+            val etChat = styledField(if (chatGuardado == 0L) "" else chatGuardado.toString()).apply {
+                hint = "Chat ID"
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
+            }
+            addView(etChat)
+            switchAvisos = Switch(this@MainActivity).apply {
+                text = "Avisos de pantalla por Telegram"
+                isChecked = Config.isAvisosActivos(this@MainActivity)
+                setPadding(0, dp(8), 0, dp(4))
+                setOnCheckedChangeListener { _, checked ->
+                    Config.setAvisosActivos(this@MainActivity, checked)
+                }
+            }
+            addView(switchAvisos)
+            addView(hintText("Los avisos llegan como texto. La captura solo se envía al lograr la compra."))
+            addView(primaryButton("Guardar Telegram") {
+                Config.setTokenTelegram(this@MainActivity, etToken.text.toString())
+                val chat = etChat.text.toString().trim().toLongOrNull() ?: 0L
+                Config.setChatTelegram(this@MainActivity, chat)
+                toast("Telegram guardado")
+                agregarRegistro("Telegram configurado")
+            })
+        })
+
+        // Registro
+        cont.addView(card().apply {
+            addView(cardTitle("Registro de eventos"))
+            scrollRegistro = ScrollView(this@MainActivity).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(180)
+                )
+            }
+            txtRegistro = TextView(this@MainActivity).apply {
+                text = "—\n"
+                textSize = 12f
+                typeface = Typeface.MONOSPACE
+                setTextColor(C_TEXTO_SEC)
+                setPadding(dp(4), dp(4), dp(4), dp(4))
+            }
+            scrollRegistro.addView(txtRegistro)
+            addView(scrollRegistro)
+        })
+
+        cont.addView(TextView(this).apply {
+            text = "Hermes BDV · v1.0"
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTextColor(C_TEXTO_HINT)
+            setPadding(0, dp(16), 0, dp(8))
+        })
     }
 
     // ------------------------------------------------------- Programación
@@ -327,20 +359,27 @@ class MainActivity : AppCompatActivity() {
         txtListaProgramaciones.removeAllViews()
         val lista = Config.obtenerProgramaciones(this)
         if (lista.isEmpty()) {
-            txtListaProgramaciones.addView(texto("Sin programaciones."))
+            txtListaProgramaciones.addView(hintText("Sin programaciones."))
             return
         }
         lista.forEachIndexed { index, p ->
             val fila = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(4), 0, dp(4))
             }
             val lbl = TextView(this).apply {
-                text = "${formatoFecha.format(p.fechaHora)} — ${p.monto} USD"
+                text = "${formatoFecha.format(p.fechaHora)} · ${p.monto} USD"
+                textSize = 14f
+                setTextColor(C_TEXTO)
+                typeface = Typeface.MONOSPACE
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             val btn = Button(this).apply {
                 text = "Borrar"
+                textSize = 12f
+                setTextColor(C_ROJO)
+                setBackgroundColor(Color.TRANSPARENT)
                 setOnClickListener {
                     Scheduler.cancelarUna(this@MainActivity, p.fechaHora)
                     refrescarProgramaciones()
@@ -477,11 +516,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun actualizarEstadoAccesibilidad() {
         if (!::txtEstadoAccesibilidad.isInitialized) return
-        txtEstadoAccesibilidad.text = if (servicioAccesibilidadActivo()) {
-            "✓ Servicio de accesibilidad ACTIVO"
+        val activo = servicioAccesibilidadActivo()
+        txtEstadoAccesibilidad.text = if (activo) {
+            "● Servicio activo"
         } else {
-            "✗ Servicio de accesibilidad INACTIVO — ábrelo en ajustes"
+            "○ Servicio inactivo — ábrelo en ajustes"
         }
+        txtEstadoAccesibilidad.setTextColor(if (activo) C_VERDE else C_ROJO)
+        txtEstadoAccesibilidad.textSize = 14f
+        txtEstadoAccesibilidad.setPadding(0, 0, 0, dp(8))
     }
 
     private fun servicioAccesibilidadActivo(): Boolean {
@@ -511,7 +554,130 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------------------------------------------------------- Util UI
+    // ---------------------------------------------------------- UI helpers
+
+    private val C_AZUL = Color.parseColor("#1A56DB")
+    private val C_AZUL_OSCURO = Color.parseColor("#1649B8")
+    private val C_FONDO = Color.parseColor("#F5F6F8")
+    private val C_TEXTO = Color.parseColor("#1F2937")
+    private val C_TEXTO_SEC = Color.parseColor("#6B7280")
+    private val C_TEXTO_HINT = Color.parseColor("#9CA3AF")
+    private val C_BORDE = Color.parseColor("#E5E7EB")
+    private val C_VERDE = Color.parseColor("#059669")
+    private val C_ROJO = Color.parseColor("#DC2626")
+
+    private fun header(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, dp(16))
+            addView(TextView(this@MainActivity).apply {
+                text = "Hermes BDV"
+                textSize = 26f
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setTextColor(C_TEXTO)
+                gravity = Gravity.CENTER
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "Compra automatizada de divisas"
+                textSize = 13f
+                setTextColor(C_TEXTO_SEC)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(2), 0, 0)
+            })
+        }
+    }
+
+    private fun card(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.WHITE)
+                cornerRadius = dp(12).toFloat()
+                setStroke(dp(1), C_BORDE)
+            }
+            background = bg
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(6); bottomMargin = dp(6)
+            }
+        }
+    }
+
+    private fun cardTitle(t: String) = TextView(this).apply {
+        text = t
+        textSize = 13f
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        setTextColor(C_TEXTO_SEC)
+        setAllCaps(true)
+        setPadding(0, 0, 0, dp(10))
+    }
+
+    private fun hintText(t: String) = TextView(this).apply {
+        text = t
+        textSize = 12f
+        setTextColor(C_TEXTO_HINT)
+        setPadding(0, 0, 0, dp(8))
+    }
+
+    private fun styledField(valor: String): EditText {
+        return EditText(this).apply {
+            setText(valor)
+            textSize = 15f
+            setTextColor(C_TEXTO)
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(C_FONDO)
+                cornerRadius = dp(8).toFloat()
+            }
+            background = bg
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+    }
+
+    private fun baseButton(t: String, bgColor: Int, textColor: Int, onClick: () -> Unit) =
+        Button(this).apply {
+            text = t
+            textSize = 14f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(textColor)
+            isAllCaps = false
+            val bg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(bgColor)
+                cornerRadius = dp(8).toFloat()
+            }
+            background = bg
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4); bottomMargin = dp(4) }
+            setOnClickListener { onClick() }
+        }
+
+    private fun primaryButton(t: String, onClick: () -> Unit) =
+        baseButton(t, C_AZUL, Color.WHITE, onClick)
+
+    private fun secondaryButton(t: String, onClick: () -> Unit): Button {
+        return baseButton(t, Color.WHITE, C_AZUL, onClick).apply {
+            val bg = background as GradientDrawable
+            bg.setStroke(dp(1), C_AZUL)
+        }
+    }
+
+    private fun dangerButton(t: String, onClick: () -> Unit) =
+        baseButton(t, Color.WHITE, C_ROJO, onClick).apply {
+            val bg = background as GradientDrawable
+            bg.setStroke(dp(1), C_BORDE)
+        }
 
     private fun agregarRegistro(linea: String) {
         if (!::txtRegistro.isInitialized) return
@@ -542,44 +708,7 @@ class MainActivity : AppCompatActivity() {
     private fun dp(v: Int): Int =
         (v * resources.displayMetrics.density).toInt()
 
-    private fun titulo(t: String, size: Float) = TextView(this).apply {
-        text = t
-        textSize = size
-        gravity = Gravity.CENTER
-        setPadding(0, dp(4), 0, dp(12))
-    }
-
-    private fun seccion(t: String) = TextView(this).apply {
-        text = t
-        textSize = 16f
-        setPadding(0, dp(16), 0, dp(6))
-    }
-
-    private fun texto(t: String) = TextView(this).apply {
-        text = t
-        setPadding(0, dp(2), 0, dp(2))
-    }
-
-    private fun campo(valor: String, inputType: Int = InputType.TYPE_CLASS_TEXT) =
-        EditText(this).apply {
-            setText(valor)
-            this.inputType = inputType
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(4) }
-        }
-
-    private fun boton(t: String, onClick: () -> Unit) = Button(this).apply {
-        text = t
-        layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(4); bottomMargin = dp(4) }
-        setOnClickListener { onClick() }
-    }
-
-    private fun espaciador() = LinearLayout(this).apply {
+    private fun espaciador() = View(this).apply {
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, dp(4)
         )

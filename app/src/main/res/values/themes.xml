@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Hermes" parent="Theme.AppCompat.DayNight.NoActionBar" />
+    <!-- Tema claro sobrio con acento azul -->
+    <style name="Theme.Hermes" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">#1A56DB</item>
+        <item name="colorPrimaryDark">#1649B8</item>
+        <item name="colorAccent">#1A56DB</item>
+        <item name="android:windowBackground">#F5F6F8</item>
+    </style>
+
+    <style name="HermesCard" parent="">
+        <item name="android:background">@drawable/card_background</item>
+    </style>
 </resources>
