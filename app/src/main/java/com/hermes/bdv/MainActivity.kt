@@ -153,6 +153,10 @@ class MainActivity : AppCompatActivity() {
             addView(secondaryButton("Abrir ajustes de accesibilidad") {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             })
+            addView(secondaryButton("Verificar estado") {
+                actualizarEstadoAccesibilidad()
+                toast(if (servicioAccesibilidadActivo()) "Servicio activo" else "Servicio inactivo")
+            })
         })
 
         // Monto
@@ -528,11 +532,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun servicioAccesibilidadActivo(): Boolean {
-        val enabled = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        return enabled.split(':').any { it.equals(SERVICIO_ACCESIBILIDAD, ignoreCase = true) }
+        // 1. El interruptor global de accesibilidad debe estar encendido
+        val globalOn = try {
+            Settings.Secure.getInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1
+        } catch (_: Exception) { false }
+        if (!globalOn) return false
+        // 2. Nuestro servicio debe estar en la lista de habilitados
+        val enabled = try {
+            Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        } catch (_: Exception) { null } ?: return false
+        return enabled.split(':').any { entry ->
+            val e = entry.trim()
+            e.equals(SERVICIO_ACCESIBILIDAD, ignoreCase = true) ||
+                (e.contains(packageName, ignoreCase = true) &&
+                    e.contains("HermesAccessibilityService", ignoreCase = true))
+        }
     }
 
     private fun bdvInstalado(): Boolean {
