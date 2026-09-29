@@ -22,7 +22,16 @@ jobs:
       - name: Permiso gradlew
         run: chmod +x gradlew
       - name: Tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/build.log; exit ${PIPESTATUS[0]}
+        run: |
+          ./gradlew :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/build.log; ec=${PIPESTATUS[0]}
+          if [ $ec -ne 0 ]; then
+            echo "=== EXTRAYENDO ERROR ==="
+            grep -E "^e: |error:|FAILED|Execution failed" /tmp/build.log | head -20 > /tmp/errores.txt || true
+            echo "::error::$(head -5 /tmp/errores.txt | tr '\n' ' ')"
+            echo "--- contexto ---"
+            grep -B2 -A8 "What went wrong" /tmp/build.log | head -30 || true
+          fi
+          exit $ec
       - name: Subir log
         if: always()
         uses: actions/upload-artifact@v4
