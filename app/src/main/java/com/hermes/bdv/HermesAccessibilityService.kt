@@ -63,8 +63,8 @@ class HermesAccessibilityService : AccessibilityService() {
         private const val CTA_DESTINO = "7470"
 
         // Reglas de Jhon
-        private const val MAX_INTENTOS_DIVISAS = 10
-        private const val MAX_TAPS_COMPRA = 3
+        // (límites de reintento eliminados por petición del usuario 29/09/2026:
+        // Divisas y Compra reintentan sin límite hasta lograrlo)
         private const val MS_ENTRE_TAPS_COMPRA = 10_000L
         private const val MS_ESPERA_FORM_TRAS_TAP = 3_000L
         private const val MARGEN_SYNC_LOGIN_SEG = 3.0
@@ -1063,21 +1063,22 @@ class HermesAccessibilityService : AccessibilityService() {
     }
 
     // ------------------------------------------------------------------
-    // Paso [2/6]: Divisas
+    // Paso [2/6]: Divisas (reintento sin límite)
     // ------------------------------------------------------------------
 
     private fun abrirDivisas(): Boolean {
-        repeat(MAX_INTENTOS_DIVISAS) { i ->
-            if (detenido) return false
-            if (pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 4_000)) return true
-            Log.i(TAG, "Divisas intento ${i + 1}/$MAX_INTENTOS_DIVISAS")
-            esperar(1_000)
+        var i = 0
+        while (!detenido) {
+            i++
+            if (pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 2_000)) return true
+            Log.i(TAG, "Divisas intento $i (sin límite)")
+            esperar(500)
         }
         return false
     }
 
     // ------------------------------------------------------------------
-    // Paso [3/6]: Compra (máx 3 taps reales, 10s exactos entre ellos)
+    // Paso [3/6]: Compra (tap inmediato, reintento sin límite)
     // ------------------------------------------------------------------
 
     /** true=visible y habilitado, false=visible pero deshabilitado, null=no visible */
@@ -1093,12 +1094,12 @@ class HermesAccessibilityService : AccessibilityService() {
 
     /**
      * Retorna true si el formulario de compra quedó abierto.
-     * Si tras 3 taps no abre: se cierra la app y el ciclo exterior re-loguea.
+     * Reintenta SIN LÍMITE hasta lograrlo (petición del usuario 29/09/2026):
+     * el tap es inmediato, sin espera de 10s entre pulsaciones.
      */
     private fun cicloCompra(): Boolean {
         var intentos = 0
-        var ultimoTapUptime = 0L
-        while (intentos < MAX_TAPS_COMPRA && !detenido) {
+        while (!detenido) {
             when (estadoCompra()) {
                 null -> {
                     // Detección tardía: el tap anterior pudo abrir el formulario con retraso
@@ -1107,45 +1108,26 @@ class HermesAccessibilityService : AccessibilityService() {
                         return true
                     }
                     if (esMenuDivisas()) {
-                        Log.i(TAG, "Compra no aparece, re-pulsando Divisas (sin límite)")
+                        Log.i(TAG, "Compra no aparece, re-pulsando Divisas")
                         pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 2_000)
-                        esperar(1_000)
+                        esperar(500)
                         continue
                     }
                     Log.i(TAG, "menú cerrado, re-abriendo Divisas")
                     pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 2_000)
-                    esperar(1_000)
+                    esperar(500)
                     continue
                 }
                 false -> {
-                    esperar(500) // deshabilitado: esperar a que se active
+                    esperar(300) // deshabilitado: esperar a que se active
                     continue
                 }
-                true -> { /* visible y activo: continuar abajo */ }
-            }
-            // Espera ACTIVA de 10s exactos entre pulsaciones reales: si el
-            // formulario abre durante la espera, se sale de inmediato.
-            val ahora = SystemClock.uptimeMillis()
-            var espera = LogicaPura.esperaRestanteCompra(ultimoTapUptime, ahora)
-            var abrioEnEspera = false
-            while (espera > 0 && !detenido) {
-                if (esFormCompra()) {
-                    abrioEnEspera = true
-                    break
-                }
-                val paso = minOf(espera, 250)
-                esperar(paso)
-                espera -= paso
-            }
-            if (abrioEnEspera) {
-                Log.i(TAG, "formulario abierto (durante espera de 10s)")
-                return true
+                true -> { /* visible y activo: pulsar de inmediato */ }
             }
             if (detenido) return false
             intentos++
-            ultimoTapUptime = SystemClock.uptimeMillis()
             pulsar(desc = "Compra", texto = "Compra", timeoutMs = 1_000)
-            Log.i(TAG, "Compra pulsado (intento $intentos/$MAX_TAPS_COMPRA)")
+            Log.i(TAG, "Compra pulsado (intento $intentos, sin límite)")
             // Espera activa del formulario (máx 3s): sale en cuanto abre
             if (esperarHasta(MS_ESPERA_FORM_TRAS_TAP) { esFormCompra() }) {
                 Log.i(TAG, "formulario abierto (intento $intentos)")
@@ -1156,7 +1138,7 @@ class HermesAccessibilityService : AccessibilityService() {
             } else if (!esMenuDivisas() && !esInicio()) {
                 intentarRecuperar("tras Compra intento $intentos")
             }
-            Log.i(TAG, "Compra no avanzó ($intentos/$MAX_TAPS_COMPRA)")
+            // Sin pausa larga: reintento inmediato
         }
         return false
     }
@@ -1301,19 +1283,17 @@ class HermesAccessibilityService : AccessibilityService() {
                 }
                 notificar(TIPO_PANTALLA, "✓ Sesión iniciada")
 
-                // [2/6] Divisas
+                // [2/6] Divisas (reintento sin límite hasta abrir)
                 if (!abrirDivisas()) {
-                    notificar(TIPO_ERROR, "⚠ FALLO: Divisas no abrió tras $MAX_INTENTOS_DIVISAS intentos.")
+                    Log.i(TAG, "ciclo $ciclo: detenido por el usuario durante Divisas")
                     break
                 }
-                notificar(TIPO_PANTALLA, "📝 Pantalla: Divisas")
+                notificar(TIPO_PANTALLA, "Pantalla: Divisas")
 
-                // [3/6] Compra
+                // [3/6] Compra (reintento sin límite hasta abrir)
                 if (!cicloCompra()) {
-                    Log.i(TAG, "ciclo $ciclo: Compra no abrió en $MAX_TAPS_COMPRA intentos, cerrando app y reintentando login")
-                    notificar(TIPO_ERROR, "⚠ Compra no abrió en $MAX_TAPS_COMPRA intentos; reintentando ciclo.")
-                    cerrarApp()
-                    continue // re-login y nuevo ciclo, sin límite
+                    Log.i(TAG, "ciclo $ciclo: detenido por el usuario durante Compra")
+                    break
                 }
                 notificar(TIPO_PANTALLA, "📝 Pantalla: Compra de divisas")
 
