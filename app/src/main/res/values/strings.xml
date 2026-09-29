@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hermes BDV</string>
+    <string name="accessibility_description">Automatiza la compra de divisas en la app del Banco de Venezuela según la programación del usuario.</string>
+</resources>

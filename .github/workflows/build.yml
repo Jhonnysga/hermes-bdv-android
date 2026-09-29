@@ -1,0 +1,48 @@
+name: Compilar APK debug
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Tests unitarios
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - name: Permiso gradlew
+        run: chmod +x gradlew
+      - name: Tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+  build:
+    name: Compilar APK debug
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - name: Permiso gradlew
+        run: chmod +x gradlew
+      - name: Compilar debug
+        run: ./gradlew :app:assembleDebug --stacktrace
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-bdv-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
