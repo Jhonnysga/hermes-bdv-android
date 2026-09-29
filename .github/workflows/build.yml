@@ -23,28 +23,13 @@ jobs:
         run: chmod +x gradlew
       - name: Tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/build.log; exit ${PIPESTATUS[0]}
-      - name: Publicar error en Issue (si falla)
-        if: failure()
-        uses: actions/github-script@v7
+      - name: Subir log
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const fs = require('fs');
-            const log = fs.readFileSync('/tmp/build.log', 'utf8');
-            // Extraer líneas con errores de Kotlin/Gradle
-            const lineas = log.split('\n');
-            const relevantes = lineas.filter(l =>
-              l.includes('e: ') || l.includes('error:') ||
-              l.includes('FAILED') || l.includes('Execution failed') ||
-              l.includes('What went wrong:')
-            ).slice(0, 40);
-            const cuerpo = '```\n' + (relevantes.join('\n') || 'sin líneas de error identificadas') + '\n```\n\nCola del log:\n```\n' +
-              lineas.slice(-30).join('\n') + '\n```';
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: 'Error CI: ' + context.sha.substring(0, 7),
-              body: cuerpo
-            });
+          name: build-log
+          path: /tmp/build.log
+          retention-days: 1
 
   build:
     name: Compilar APK debug
