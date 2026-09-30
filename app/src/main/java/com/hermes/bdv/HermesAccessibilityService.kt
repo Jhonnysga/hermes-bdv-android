@@ -982,7 +982,7 @@ class HermesAccessibilityService : AccessibilityService() {
                 if (habilitado) return nodo // el llamador recicla
                 reciclarSeguro(nodo)
             }
-            esperar(500)
+            esperar(200) // polling apretado: apenas se active, se detecta
         }
         return null
     }
@@ -1119,26 +1119,17 @@ class HermesAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------
 
     private fun abrirDivisas(): Boolean {
-        // Primera pulsación inmediata, luego reintento sin límite.
-        // VERIFICA que la pantalla Divisas realmente abrió; si no abre, re-pulsa
-        // DE INMEDIATO (sin esperas largas entre reintentos).
+        // Pulsación INMEDIATA tras el login. No espera verificación larga:
+        // el ciclo de Compra se encarga de re-pulsar si no avanzó.
+        // Reintento sin límite hasta lograr el tap.
         var i = 0
         while (!detenido) {
             i++
-            // Intento inmediato (timeout corto: si está visible lo pulsa ya)
-            val pulsado = pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 300)
-            if (pulsado) {
-                // Verificación rápida (2s): si abrió, continuar; si no, re-pulsar ya
-                val abrio = esperarHasta(2_000) { esMenuDivisas() || estadoCompra() != null }
-                if (abrio) {
-                    Log.i(TAG, "Divisas abierto (intento $i)")
-                    return true
-                }
-                Log.i(TAG, "Divisas pulsado pero no abrió, re-pulsando ya (intento $i)")
-            } else {
-                Log.i(TAG, "Divisas intento $i (sin límite)")
+            if (pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 300)) {
+                Log.i(TAG, "Divisas pulsado (intento $i)")
+                return true
             }
-            // Pausa mínima entre reintentos
+            // No visible aún: reintento casi inmediato
             esperar(200)
         }
         return false
@@ -1160,45 +1151,43 @@ class HermesAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Retorna true si el formulario de compra quedó abierto.
-     * Patrón 29/09/2026: espera activa a que Compra se habilite y lo pulsa
-     * APENAS se activa (sin espera fija). Reintenta sin límite.
+     * Ciclo APRETADO Divisas→Compra (petición del usuario 29/09/2026 22:58):
+     * - Si el formulario ya abrió: listo.
+     * - Si Compra está ACTIVO: se pulsa DE INMEDIATO.
+     * - Si no: se pulsa Divisas DE INMEDIATO y se repite.
+     * Sin esperas fijas, sin límite de intentos: repetir hasta pasar
+     * a la siguiente etapa.
      */
     private fun cicloCompra(): Boolean {
         var intentos = 0
         while (!detenido) {
-            // Esperar a que Compra esté visible y habilitado, pulsar apenas se active.
-            // Polling agresivo: si no se activa rápido, re-pulsar Divisas ya.
-            val listo = esperarHasta(8_000) { estadoCompra() == true }
-            if (!listo) {
-                // No se activó: verificar si el formulario abrió por otro lado
-                if (esFormCompra()) {
-                    Log.i(TAG, "formulario abierto (detección tardía)")
-                    return true
-                }
-                // Re-pulsar Divisas DE INMEDIATO para refrescar y reintentar
-                intentos++
-                Log.i(TAG, "Compra no se activó, re-pulsando Divisas ya (intento $intentos)")
-                pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 300)
-                esperar(200)
-                continue
-            }
-            if (detenido) return false
-            // Activo: pulsar DE INMEDIATO
-            intentos++
-            pulsar(desc = "Compra", texto = "Compra", timeoutMs = 1_000)
-            Log.i(TAG, "Compra pulsado apenas se activó (intento $intentos, sin límite)")
-            // Espera activa del formulario (máx 3s): sale en cuanto abre
-            if (esperarHasta(MS_ESPERA_FORM_TRAS_TAP) { esFormCompra() }) {
-                Log.i(TAG, "formulario abierto (intento $intentos)")
+            // ¿Ya abrió el formulario? (el tap anterior pudo funcionar)
+            if (esFormCompra()) {
+                Log.i(TAG, "formulario abierto")
                 return true
             }
-            if (esNoDisponible()) {
-                Log.i(TAG, "mercado no disponible (intento $intentos), insistiendo")
-            } else if (!esMenuDivisas() && !esInicio()) {
-                intentarRecuperar("tras Compra intento $intentos")
+            when (estadoCompra()) {
+                true -> {
+                    // ACTIVO: pulsar DE INMEDIATO
+                    intentos++
+                    pulsar(desc = "Compra", texto = "Compra", timeoutMs = 300)
+                    Log.i(TAG, "Compra pulsado (intento $intentos)")
+                    // Verificación rápida: ¿avanzó?
+                    if (esperarHasta(1_500) { esFormCompra() }) {
+                        Log.i(TAG, "formulario abierto (intento $intentos)")
+                        return true
+                    }
+                    if (esNoDisponible()) {
+                        Log.i(TAG, "mercado no disponible, insistiendo")
+                    }
+                    // No avanzó: el ciclo re-pulsa Divisas de inmediato
+                }
+                else -> {
+                    // No visible o deshabilitado: pulsar Divisas DE INMEDIATO
+                    pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 300)
+                }
             }
-            // Reintento inmediato (sin pausa larga)
+            // Sin pausa: ciclo apretado
         }
         return false
     }
