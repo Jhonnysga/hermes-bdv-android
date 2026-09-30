@@ -1119,13 +1119,25 @@ class HermesAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------
 
     private fun abrirDivisas(): Boolean {
-        // Primera pulsación inmediata, luego reintento sin límite
+        // Primera pulsación inmediata, luego reintento sin límite.
+        // VERIFICA que la pantalla Divisas realmente abrió (espera a que
+        // aparezca "Compra" o el menú Divisas); si no abre, re-pulsa.
         var i = 0
         while (!detenido) {
             i++
             // Intento inmediato (timeout corto: si está visible lo pulsa ya)
-            if (pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 500)) return true
-            Log.i(TAG, "Divisas intento $i (sin límite)")
+            val pulsado = pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 500)
+            if (pulsado) {
+                // Verificar que Divisas abrió: esperar a que aparezca Compra o el menú
+                val abrio = esperarHasta(5_000) { esMenuDivisas() || estadoCompra() != null }
+                if (abrio) {
+                    Log.i(TAG, "Divisas abierto (intento $i)")
+                    return true
+                }
+                Log.i(TAG, "Divisas pulsado pero no abrió, reintentando (intento $i)")
+            } else {
+                Log.i(TAG, "Divisas intento $i (sin límite)")
+            }
             esperar(500)
         }
         return false
@@ -1154,21 +1166,17 @@ class HermesAccessibilityService : AccessibilityService() {
     private fun cicloCompra(): Boolean {
         var intentos = 0
         while (!detenido) {
-            // Esperar a que Compra esté visible y habilitado, pulsar apenas se active
-            val listo = esperarHasta(30_000) { estadoCompra() == true }
+            // Esperar a que Compra esté visible y habilitado, pulsar apenas se active.
+            // Timeout corto (10s): si no se activa, re-pulsar Divisas y reintentar.
+            val listo = esperarHasta(10_000) { estadoCompra() == true }
             if (!listo) {
-                // No se activó en 30s: verificar si el formulario abrió por otro lado
+                // No se activó en 10s: verificar si el formulario abrió por otro lado
                 if (esFormCompra()) {
                     Log.i(TAG, "formulario abierto (detección tardía)")
                     return true
                 }
-                if (esMenuDivisas()) {
-                    Log.i(TAG, "Compra no se activó, re-pulsando Divisas")
-                    pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 500)
-                    esperar(500)
-                    continue
-                }
-                Log.i(TAG, "menú cerrado, re-abriendo Divisas")
+                // Re-pulsar Divisas para refrescar y reintentar de inmediato
+                Log.i(TAG, "Compra no se activó, re-pulsando Divisas (intento ${intentos + 1})")
                 pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 500)
                 esperar(500)
                 continue
