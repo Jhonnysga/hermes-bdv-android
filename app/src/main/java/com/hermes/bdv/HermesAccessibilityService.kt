@@ -64,8 +64,9 @@ class HermesAccessibilityService : AccessibilityService() {
 
         // Reglas de Jhon
         // (límites de reintento eliminados por petición del usuario 29/09/2026:
-        // Divisas y Compra reintentan sin límite hasta lograrlo)
-        private const val MS_ENTRE_TAPS_COMPRA = 10_000L
+        // Divisas y Compra reintentan sin límite hasta lograrlo;
+        // patrón 29/09/2026 20:12: primera pulsación inmediata, luego
+        // pulsar APENAS el botón se active, sin espera fija)
         private const val MS_ESPERA_FORM_TRAS_TAP = 3_000L
         private const val MARGEN_SYNC_LOGIN_SEG = 3.0
         private const val MAX_INTENTOS_COMPROBANTE = 20
@@ -551,6 +552,54 @@ class HermesAccessibilityService : AccessibilityService() {
                 (texto != null && coincideTexto(it, texto))
         }
         val nodo = buscarNodo(pred) ?: return null
+        return try {
+            nodo.isEnabled
+        } finally {
+            reciclarSeguro(nodo)
+        }
+    }
+
+    /**
+     * Pulsa un botón en cuanto esté visible Y habilitado (polling activo).
+     * No espera un tiempo fijo: apenas se activa, lo pulsa de inmediato.
+     * Retorna true si logró pulsarlo, false si se agotó el timeout o se detuvo.
+     */
+    private fun pulsarCuandoListo(
+        desc: String? = null,
+        descContiene: String? = null,
+        texto: String? = null,
+        textoContiene: String? = null,
+        timeoutMs: Long = 30_000,
+        intervaloMs: Long = 250
+    ): Boolean {
+        val fin = SystemClock.uptimeMillis() + timeoutMs
+        while (SystemClock.uptimeMillis() < fin && !detenido) {
+            val estado = estadoBotonGenerico(desc, descContiene, texto, textoContiene)
+            if (estado == true) {
+                // Activo: pulsar de inmediato
+                if (pulsar(desc, descContiene, texto, textoContiene, timeoutMs = 1_000)) {
+                    return true
+                }
+            }
+            // No existe o deshabilitado: esperar un poco y reintentar
+            esperar(intervaloMs)
+        }
+        return false
+    }
+
+    /** Estado genérico: true=visible y habilitado, false=visible pero deshabilitado, null=no visible. */
+    private fun estadoBotonGenerico(
+        desc: String?,
+        descContiene: String?,
+        texto: String?,
+        textoContiene: String?
+    ): Boolean? {
+        val nodo = buscarNodo {
+            (desc != null && coincideDesc(it, desc)) ||
+                (descContiene != null && coincideDescContiene(it, descContiene)) ||
+                (texto != null && coincideTexto(it, texto)) ||
+                (textoContiene != null && coincideTextoContiene(it, textoContiene))
+        } ?: return null
         return try {
             nodo.isEnabled
         } finally {
@@ -1067,10 +1116,12 @@ class HermesAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------
 
     private fun abrirDivisas(): Boolean {
+        // Primera pulsación inmediata, luego reintento sin límite
         var i = 0
         while (!detenido) {
             i++
-            if (pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 2_000)) return true
+            // Intento inmediato (timeout corto: si está visible lo pulsa ya)
+            if (pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 500)) return true
             Log.i(TAG, "Divisas intento $i (sin límite)")
             esperar(500)
         }
@@ -1094,40 +1145,36 @@ class HermesAccessibilityService : AccessibilityService() {
 
     /**
      * Retorna true si el formulario de compra quedó abierto.
-     * Reintenta SIN LÍMITE hasta lograrlo (petición del usuario 29/09/2026):
-     * el tap es inmediato, sin espera de 10s entre pulsaciones.
+     * Patrón 29/09/2026: espera activa a que Compra se habilite y lo pulsa
+     * APENAS se activa (sin espera fija). Reintenta sin límite.
      */
     private fun cicloCompra(): Boolean {
         var intentos = 0
         while (!detenido) {
-            when (estadoCompra()) {
-                null -> {
-                    // Detección tardía: el tap anterior pudo abrir el formulario con retraso
-                    if (esFormCompra()) {
-                        Log.i(TAG, "formulario abierto (detección tardía)")
-                        return true
-                    }
-                    if (esMenuDivisas()) {
-                        Log.i(TAG, "Compra no aparece, re-pulsando Divisas")
-                        pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 2_000)
-                        esperar(500)
-                        continue
-                    }
-                    Log.i(TAG, "menú cerrado, re-abriendo Divisas")
-                    pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 2_000)
+            // Esperar a que Compra esté visible y habilitado, pulsar apenas se active
+            val listo = esperarHasta(30_000) { estadoCompra() == true }
+            if (!listo) {
+                // No se activó en 30s: verificar si el formulario abrió por otro lado
+                if (esFormCompra()) {
+                    Log.i(TAG, "formulario abierto (detección tardía)")
+                    return true
+                }
+                if (esMenuDivisas()) {
+                    Log.i(TAG, "Compra no se activó, re-pulsando Divisas")
+                    pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 500)
                     esperar(500)
                     continue
                 }
-                false -> {
-                    esperar(300) // deshabilitado: esperar a que se active
-                    continue
-                }
-                true -> { /* visible y activo: pulsar de inmediato */ }
+                Log.i(TAG, "menú cerrado, re-abriendo Divisas")
+                pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 500)
+                esperar(500)
+                continue
             }
             if (detenido) return false
+            // Activo: pulsar DE INMEDIATO
             intentos++
             pulsar(desc = "Compra", texto = "Compra", timeoutMs = 1_000)
-            Log.i(TAG, "Compra pulsado (intento $intentos, sin límite)")
+            Log.i(TAG, "Compra pulsado apenas se activó (intento $intentos, sin límite)")
             // Espera activa del formulario (máx 3s): sale en cuanto abre
             if (esperarHasta(MS_ESPERA_FORM_TRAS_TAP) { esFormCompra() }) {
                 Log.i(TAG, "formulario abierto (intento $intentos)")
@@ -1138,7 +1185,7 @@ class HermesAccessibilityService : AccessibilityService() {
             } else if (!esMenuDivisas() && !esInicio()) {
                 intentarRecuperar("tras Compra intento $intentos")
             }
-            // Sin pausa larga: reintento inmediato
+            // Reintento inmediato (sin pausa larga)
         }
         return false
     }
