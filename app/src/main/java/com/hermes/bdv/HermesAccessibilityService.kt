@@ -504,8 +504,7 @@ class HermesAccessibilityService : AccessibilityService() {
         texto: String? = null,
         textoContiene: String? = null,
         timeoutMs: Long = 4_000
-    ): Boolean {
-        val estrategias = mutableListOf<(AccessibilityNodeInfo) -> Boolean>()
+    ): Boolean {        val estrategias = mutableListOf<(AccessibilityNodeInfo) -> Boolean>()
         desc?.let { v -> estrategias.add { coincideDesc(it, v) } }
         texto?.let { v -> estrategias.add { coincideTexto(it, v) } }
         descContiene?.let { v -> estrategias.add { coincideDescContiene(it, v) } }
@@ -545,6 +544,49 @@ class HermesAccessibilityService : AccessibilityService() {
             }
         }
         Log.w(TAG, "NO APARECIO botón desc=$desc descContiene=$descContiene texto=$texto")
+        return false
+    }
+
+    /**
+     * Intento ÚNICO de pulsar, SIN esperas ni reintentos internos.
+     * Para ciclos apretados donde el llamador controla el ritmo.
+     * Retorna true si el tap se ejecutó.
+     */
+    private fun pulsarUnaVez(
+        desc: String? = null,
+        descContiene: String? = null,
+        texto: String? = null,
+        textoContiene: String? = null
+    ): Boolean {
+        val preds = mutableListOf<(AccessibilityNodeInfo) -> Boolean>()
+        desc?.let { v -> preds.add { coincideDesc(it, v) } }
+        texto?.let { v -> preds.add { coincideTexto(it, v) } }
+        descContiene?.let { v -> preds.add { coincideDescContiene(it, v) } }
+        textoContiene?.let { v -> preds.add { coincideTextoContiene(it, v) } }
+        // Respaldo cruzado
+        if (preds.size == 1) {
+            desc?.let { v -> preds.add { coincideTexto(it, v) } }
+            texto?.let { v -> preds.add { coincideDesc(it, v) } }
+            descContiene?.let { v -> preds.add { coincideTextoContiene(it, v) } }
+            textoContiene?.let { v -> preds.add { coincideDescContiene(it, v) } }
+        }
+        for (pred in preds) {
+            if (detenido) return false
+            val nodo = buscarNodo(pred) ?: continue
+            try {
+                val objetivo = ancestroClicable(nodo) ?: nodo
+                val ok = try {
+                    objetivo.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                } catch (e: Exception) {
+                    false
+                }
+                if (objetivo !== nodo) reciclarSeguro(objetivo)
+                reciclarSeguro(nodo)
+                if (ok) return true
+            } catch (e: Exception) {
+                reciclarSeguro(nodo)
+            }
+        }
         return false
     }
 
@@ -1119,18 +1161,16 @@ class HermesAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------
 
     private fun abrirDivisas(): Boolean {
-        // Pulsación INMEDIATA tras el login. No espera verificación larga:
-        // el ciclo de Compra se encarga de re-pulsar si no avanzó.
-        // Reintento sin límite hasta lograr el tap.
+        // Pulsación INMEDIATA tras el login, sin esperas.
+        // Reintento sin límite hasta lograr el tap (intento único por vuelta).
         var i = 0
         while (!detenido) {
             i++
-            if (pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 300)) {
+            if (pulsarUnaVez(descContiene = "Divisas", texto = "Divisas")) {
                 Log.i(TAG, "Divisas pulsado (intento $i)")
                 return true
             }
-            // No visible aún: reintento casi inmediato
-            esperar(200)
+            // No visible aún: el ciclo apretado reintenta sin pausa
         }
         return false
     }
@@ -1151,15 +1191,15 @@ class HermesAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Ciclo APRETADO Divisas→Compra (petición del usuario 29/09/2026 22:58):
+     * Ciclo APRETADO Divisas→Compra (petición del usuario 29/09/2026 23:19):
+     * SIN TIEMPOS MUERTOS. En cada vuelta:
      * - Si el formulario ya abrió: listo.
-     * - Si Compra está ACTIVO: se pulsa DE INMEDIATO.
-     * - Si no: se pulsa Divisas DE INMEDIATO y se repite.
-     * Sin esperas fijas, sin límite de intentos: repetir hasta pasar
-     * a la siguiente etapa.
+     * - Si Compra está ACTIVO: se pulsa DE INMEDIATO (intento único, sin espera).
+     * - Si no: se pulsa Divisas DE INMEDIATO (intento único, sin espera).
+     * Repetir hasta pasar a la siguiente etapa. Sin límite de intentos.
      */
     private fun cicloCompra(): Boolean {
-        var intentos = 0
+        var intentosCompra = 0
         while (!detenido) {
             // ¿Ya abrió el formulario? (el tap anterior pudo funcionar)
             if (esFormCompra()) {
@@ -1168,27 +1208,22 @@ class HermesAccessibilityService : AccessibilityService() {
             }
             when (estadoCompra()) {
                 true -> {
-                    // ACTIVO: pulsar DE INMEDIATO
-                    intentos++
-                    pulsar(desc = "Compra", texto = "Compra", timeoutMs = 300)
-                    Log.i(TAG, "Compra pulsado (intento $intentos)")
-                    // Verificación rápida: ¿avanzó?
-                    if (esperarHasta(1_500) { esFormCompra() }) {
-                        Log.i(TAG, "formulario abierto (intento $intentos)")
-                        return true
-                    }
-                    if (esNoDisponible()) {
-                        Log.i(TAG, "mercado no disponible, insistiendo")
-                    }
-                    // No avanzó: el ciclo re-pulsa Divisas de inmediato
+                    // ACTIVO: pulsar DE INMEDIATO, sin espera previa ni posterior
+                    intentosCompra++
+                    pulsarUnaVez(desc = "Compra", texto = "Compra")
+                    // El siguiente ciclo verifica si abrió; sin pausa aquí
                 }
                 else -> {
                     // No visible o deshabilitado: pulsar Divisas DE INMEDIATO
-                    pulsar(descContiene = "Divisas", texto = "Divisas", timeoutMs = 300)
+                    pulsarUnaVez(descContiene = "Divisas", texto = "Divisas")
                 }
             }
-            // Sin pausa: ciclo apretado
+            // Sin esperar(): ciclo apretado, el ritmo lo marca la UI
+            if (esNoDisponible()) {
+                Log.i(TAG, "mercado no disponible, insistiendo")
+            }
         }
+        Log.i(TAG, "cicloCompra detenido tras $intentosCompra taps a Compra")
         return false
     }
 
