@@ -85,8 +85,8 @@ class HermesEventReceiver(
                     TelegramNotifier.enviarTexto(token, chatId, CAPTION_EXITO)
                 }
                 onLog?.invoke(CAPTION_EXITO)
-                // La ejecución terminó: la clave solo vivía en memoria.
-                MainActivity.claveEnMemoria = null
+                // La ejecución terminó. (La clave vive cifrada en ClaveSegura;
+                // no hay nada que limpiar de memoria.)
             }
         }
     }

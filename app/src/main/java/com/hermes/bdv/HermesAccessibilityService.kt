@@ -176,11 +176,14 @@ class HermesAccessibilityService : AccessibilityService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val monto = intent?.getStringExtra(EXTRA_MONTO)?.trim().orEmpty()
+        // La clave se lee del almacén cifrado (preconfigurada por el usuario).
+        // El intent puede traerla (compatibilidad), pero la fuente oficial es ClaveSegura.
         val clave = intent?.getStringExtra(EXTRA_CLAVE).orEmpty()
+            .ifEmpty { ClaveSegura.leer(this) }
         val hora = intent?.getStringExtra(EXTRA_HORA_OBJETIVO)?.trim().orEmpty()
 
         if (monto.isEmpty() || clave.isEmpty()) {
-            notificar(TIPO_ERROR, "⚠ Faltan datos para ejecutar (monto/clave).")
+            notificar(TIPO_ERROR, "⚠ Faltan datos para ejecutar (monto/clave). Configura la clave en la app.")
             return START_NOT_STICKY
         }
         if (!LogicaPura.validarMonto(monto)) {
@@ -1281,7 +1284,7 @@ class HermesAccessibilityService : AccessibilityService() {
             return false
         }
         Log.i(TAG, "pantalla Confirmar Operación detectada")
-        notificar(TIPO_PANTALLA, "📝 Pantalla: Confirmar Operación")
+        notificar(TIPO_PANTALLA, "Paso 6/6: Confirmar Operación.")
 
         // Pulsar Confirmar AUTOMÁTICAMENTE (Jhon: ningún paso es manual).
         // yaAvanzo=esComprobante: si al cerrar el diálogo la operación ya se
@@ -1317,6 +1320,8 @@ class HermesAccessibilityService : AccessibilityService() {
     private fun ejecutarFlujo() {
         var ciclo = 0
         try {
+            // Aviso de inicio (petición del usuario 29/09/2026)
+            notificar(TIPO_PANTALLA, "▶ Hermes iniciado ($montoActual USD). Paso 1/6: Login.")
             while (!detenido && !Thread.currentThread().isInterrupted) {
                 ciclo++
                 Log.i(TAG, "=== ciclo $ciclo ===")
@@ -1328,21 +1333,21 @@ class HermesAccessibilityService : AccessibilityService() {
                     notificar(TIPO_ERROR, "⚠ FALLO en login (no se reintenta para evitar bloqueo).")
                     break
                 }
-                notificar(TIPO_PANTALLA, "✓ Sesión iniciada")
+                notificar(TIPO_PANTALLA, "✓ Sesión iniciada. Paso 2/6: Divisas.")
 
                 // [2/6] Divisas (reintento sin límite hasta abrir)
                 if (!abrirDivisas()) {
                     Log.i(TAG, "ciclo $ciclo: detenido por el usuario durante Divisas")
                     break
                 }
-                notificar(TIPO_PANTALLA, "Pantalla: Divisas")
+                notificar(TIPO_PANTALLA, "Paso 3/6: Compra de divisas.")
 
                 // [3/6] Compra (reintento sin límite hasta abrir)
                 if (!cicloCompra()) {
                     Log.i(TAG, "ciclo $ciclo: detenido por el usuario durante Compra")
                     break
                 }
-                notificar(TIPO_PANTALLA, "📝 Pantalla: Compra de divisas")
+                notificar(TIPO_PANTALLA, "Paso 4/6: Cuentas y monto.")
 
                 // [4/6] Formulario
                 if (!formularioCuentasMonto()) {
@@ -1351,7 +1356,7 @@ class HermesAccessibilityService : AccessibilityService() {
                 }
 
                 // [5/6] Destino y actividad
-                notificar(TIPO_PANTALLA, "📝 Pantalla: Destino de los fondos")
+                notificar(TIPO_PANTALLA, "Paso 5/6: Destino de los fondos.")
                 if (!pasoDestinoActividad()) {
                     notificar(TIPO_ERROR, "⚠ FALLO: Continuar no avanzó en pantalla 2.")
                     break

@@ -38,19 +38,21 @@ import java.util.Locale
  *   acción [ACCION_EJECUTAR] y extras [EXTRA_MONTO] (String) y
  *   [EXTRA_HORA_OBJETIVO] (String "HH:mm:ss" o "ahora").
  *   El servicio debe atenderlo en onStartCommand() y leer la clave desde
- *   [claveEnMemoria] (SOLO memoria, nunca disco).
+ *   [ClaveSegura] (almacén cifrado en el dispositivo).
  * - Para detener, se emite el broadcast [ACCION_DETENER]; el servicio debe
  *   tener un receptor dinámico registrado para esa acción y abortar el ciclo.
  * - El servicio emite broadcasts [HermesEventReceiver.ACCION_EVENTO] con los
  *   extras "tipo"/"mensaje"/"captura"/"captura_path" según progresa.
  *
- * SEGURIDAD: la clave bancaria jamás se persiste. Vive únicamente en
- * [claveEnMemoria] durante la ejecución y se limpia al terminar.
+ * SEGURIDAD: la clave bancaria se guarda CIFRADA en el dispositivo
+ * ([ClaveSegura], AndroidX Security). Nunca se envía a Telegram, nunca
+ * aparece en logs y nunca sale del teléfono.
  */
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        /** Clave bancaria SOLO en memoria. Se limpia al terminar cada ejecución. */
+        /** (En desuso: la clave ahora vive cifrada en [ClaveSegura].) */
+        @Deprecated("Usar ClaveSegura")
         var claveEnMemoria: String? = null
 
         const val EXTRA_EJECUTAR_PROGRAMADO = "ejecutar_programado"
@@ -135,6 +137,8 @@ class MainActivity : AppCompatActivity() {
         actualizarEstadoAccesibilidad()
         refrescarProgramaciones()
         switchAvisos.isChecked = Config.isAvisosActivos(this)
+        // Control por Telegram (polling de comandos)
+        TelegramControl.iniciar(this)
     }
 
     // -------------------------------------------------------- UI profesional
@@ -175,6 +179,44 @@ class MainActivity : AppCompatActivity() {
                     Config.setMonto(this@MainActivity, v)
                     toast("Monto guardado: $v USD")
                     agregarRegistro("Monto configurado: $v USD")
+                }
+            })
+        })
+
+        // Clave bancaria (preconfigurada, cifrada en el dispositivo)
+        cont.addView(card().apply {
+            addView(cardTitle("Clave bancaria"))
+            addView(hintText("Se guarda cifrada en el teléfono. El servicio la usa al ejecutar."))
+            val txtEstadoClave = TextView(this@MainActivity).apply {
+                textSize = 14f
+                text = if (ClaveSegura.configurada(this@MainActivity))
+                    "Estado: configurada" else "Estado: sin configurar"
+            }
+            addView(txtEstadoClave)
+            val etClave = styledField("").apply {
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                hint = "Clave del BDV"
+            }
+            addView(etClave)
+            addView(primaryButton("Guardar clave") {
+                val v = etClave.text.toString()
+                if (v.isBlank()) {
+                    toast("Escribe la clave primero")
+                } else if (ClaveSegura.guardar(this@MainActivity, v)) {
+                    etClave.setText("")
+                    txtEstadoClave.text = "Estado: configurada"
+                    toast("Clave guardada (cifrada)")
+                    agregarRegistro("Clave bancaria configurada")
+                } else {
+                    toast("No se pudo guardar la clave")
+                }
+            })
+            addView(dangerButton("Borrar clave") {
+                confirmar("¿Borrar la clave guardada?") {
+                    ClaveSegura.borrar(this@MainActivity)
+                    txtEstadoClave.text = "Estado: sin configurar"
+                    toast("Clave borrada")
+                    agregarRegistro("Clave bancaria borrada")
                 }
             })
         })
@@ -410,14 +452,12 @@ class MainActivity : AppCompatActivity() {
         ultimaProgramacionProcesada = fh
 
         agregarRegistro("Alarma: ejecución programada de $monto USD")
-        if (claveEnMemoria.isNullOrEmpty()) {
-            pedirClave(monto, esProgramada = true) { clave ->
-                iniciarEjecucion(monto, clave, horaObjetivo = "ahora")
-            }
-        } else {
-            // Caso de pruebas: ya hay clave en memoria
-            iniciarEjecucion(monto, claveEnMemoria!!, horaObjetivo = "ahora")
+        if (!ClaveSegura.configurada(this)) {
+            agregarRegistro("⚠ Clave sin configurar: no se ejecuta la programación.")
+            return
         }
+        // La clave la lee el servicio desde el almacén cifrado.
+        iniciarEjecucion(monto, horaObjetivo = "ahora")
     }
 
     private fun flujoEjecutarAhora() {
@@ -446,15 +486,24 @@ class MainActivity : AppCompatActivity() {
                 .show()
             return
         }
-        val monto = Config.getMonto(this)
-        pedirClave(monto, esProgramada = false) { clave ->
-            iniciarEjecucion(monto, clave, horaObjetivo = "ahora")
+        if (!ClaveSegura.configurada(this)) {
+            AlertDialog.Builder(this)
+                .setTitle("Clave sin configurar")
+                .setMessage(
+                    "Configura tu clave bancaria en la sección \"Clave bancaria\" " +
+                        "antes de ejecutar."
+                )
+                .setPositiveButton("Entendido", null)
+                .show()
+            return
         }
+        val monto = Config.getMonto(this)
+        iniciarEjecucion(monto, horaObjetivo = "ahora")
     }
 
     /**
-     * Pide la clave con campo de contraseña. No se guarda en ningún lado:
-     * al confirmar solo queda en [claveEnMemoria].
+     * Pide la clave con campo de contraseña. (En desuso: la clave ahora es
+     * preconfigurada y cifrada vía [ClaveSegura]. Se conserva por compatibilidad.)
      */
     private fun pedirClave(monto: String, esProgramada: Boolean, alConfirmar: (String) -> Unit) {
         val layout = LinearLayout(this).apply {
@@ -490,14 +539,13 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun iniciarEjecucion(monto: String, clave: String, horaObjetivo: String) {
-        claveEnMemoria = clave
-        val ok = HermesAccessibilityService.iniciar(this, monto, clave, horaObjetivo)
+    private fun iniciarEjecucion(monto: String, horaObjetivo: String) {
+        // La clave la lee el servicio desde el almacén cifrado (ClaveSegura).
+        val ok = HermesAccessibilityService.iniciar(this, monto, "", horaObjetivo)
         if (ok) {
             agregarRegistro("▶ Ejecución iniciada ($monto USD)")
             toast("Hermes en ejecución")
         } else {
-            claveEnMemoria = null
             agregarRegistro("No se pudo iniciar el servicio (¿habilitado en Accesibilidad?)")
             toast("No se pudo iniciar el servicio")
         }
@@ -506,7 +554,6 @@ class MainActivity : AppCompatActivity() {
     private fun flujoDetener() {
         confirmar("¿Detener la ejecución en curso?") {
             sendBroadcast(Intent(ACCION_DETENER))
-            claveEnMemoria = null
             agregarRegistro("⏹ Detener enviado.")
             confirmar("¿Borrar también las programaciones pendientes?") {
                 Scheduler.cancelarTodos(this)

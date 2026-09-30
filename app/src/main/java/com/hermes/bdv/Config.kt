@@ -12,9 +12,9 @@ data class Programacion(val fechaHora: Long, val monto: String)
 /**
  * Configuración persistente de Hermes (SharedPreferences "hermes_cfg").
  *
- * NOTA DE SEGURIDAD: la clave bancaria NUNCA se guarda aquí ni en ningún
- * archivo. Solo existe en memoria ([MainActivity.claveEnMemoria]) mientras
- * dura una ejecución y se limpia al terminar.
+ * NOTA DE SEGURIDAD: la clave bancaria se guarda CIFRADA en el dispositivo
+ * ([ClaveSegura], AndroidX Security). Nunca se envía a Telegram, nunca
+ * aparece en logs y nunca sale del teléfono.
  */
 object Config {
     private const val PREFS = "hermes_cfg"
