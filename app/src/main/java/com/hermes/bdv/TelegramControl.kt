@@ -149,6 +149,19 @@ object TelegramControl {
                     TelegramNotifier.enviarTexto(token, chatId, "Monto actualizado: $arg USD.")
                 }
             }
+            "/clave" -> {
+                if (arg.isEmpty()) {
+                    TelegramNotifier.enviarTexto(token, chatId, "Uso: /clave <tu_clave>")
+                } else if (ClaveSegura.guardar(context, arg)) {
+                    TelegramNotifier.enviarTexto(
+                        token, chatId,
+                        "Clave guardada (cifrada en el teléfono).\n" +
+                            "Por seguridad, borra este mensaje de Telegram."
+                    )
+                } else {
+                    TelegramNotifier.enviarTexto(token, chatId, "No se pudo guardar la clave.")
+                }
+            }
             "/ayuda", "/help", "/start" -> {
                 TelegramNotifier.enviarTexto(
                     token, chatId,
@@ -157,6 +170,7 @@ object TelegramControl {
                         "/detener – detener\n" +
                         "/estado – estado\n" +
                         "/monto <1–500> – cambiar monto\n" +
+                        "/clave <clave> – guardar clave (cifrada)\n" +
                         "/ayuda – esta ayuda"
                 )
             }
