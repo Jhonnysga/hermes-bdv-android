@@ -69,9 +69,6 @@ class MainActivity : AppCompatActivity() {
             "com.bdv.personas"
         )
 
-        private const val SERVICIO_ACCESIBILIDAD =
-            "com.hermes.bdv/.HermesAccessibilityService"
-
         private const val FORMATO_FECHA = "EEEE d/MM HH:mm"
     }
 
@@ -567,33 +564,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun actualizarEstadoAccesibilidad() {
         if (!::txtEstadoAccesibilidad.isInitialized) return
-        val activo = servicioAccesibilidadActivo()
-        txtEstadoAccesibilidad.text = if (activo) {
-            "● Servicio activo"
-        } else {
-            "○ Servicio inactivo — ábrelo en ajustes"
+        when (HermesAccessibilityService.estadoServicio(this)) {
+            HermesAccessibilityService.EstadoServicio.ACTIVO -> {
+                txtEstadoAccesibilidad.text = "● Servicio activo"
+                txtEstadoAccesibilidad.setTextColor(C_VERDE)
+            }
+            HermesAccessibilityService.EstadoServicio.HABILITADO_SIN_CONEXION -> {
+                txtEstadoAccesibilidad.text =
+                    "◐ Activado pero sin conexión — desactívalo y vuelve a activarlo en ajustes"
+                txtEstadoAccesibilidad.setTextColor(C_AMBAR)
+            }
+            HermesAccessibilityService.EstadoServicio.INACTIVO -> {
+                txtEstadoAccesibilidad.text = "○ Servicio inactivo — ábrelo en ajustes"
+                txtEstadoAccesibilidad.setTextColor(C_ROJO)
+            }
         }
-        txtEstadoAccesibilidad.setTextColor(if (activo) C_VERDE else C_ROJO)
         txtEstadoAccesibilidad.textSize = 14f
         txtEstadoAccesibilidad.setPadding(0, 0, 0, dp(8))
     }
 
     private fun servicioAccesibilidadActivo(): Boolean {
-        // 1. El interruptor global de accesibilidad debe estar encendido
-        val globalOn = try {
-            Settings.Secure.getInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1
-        } catch (_: Exception) { false }
-        if (!globalOn) return false
-        // 2. Nuestro servicio debe estar en la lista de habilitados
-        val enabled = try {
-            Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
-        } catch (_: Exception) { null } ?: return false
-        return enabled.split(':').any { entry ->
-            val e = entry.trim()
-            e.equals(SERVICIO_ACCESIBILIDAD, ignoreCase = true) ||
-                (e.contains(packageName, ignoreCase = true) &&
-                    e.contains("HermesAccessibilityService", ignoreCase = true))
-        }
+        return HermesAccessibilityService.estadoServicio(this) ==
+            HermesAccessibilityService.EstadoServicio.ACTIVO
     }
 
     private fun bdvInstalado(): Boolean {
@@ -626,6 +618,7 @@ class MainActivity : AppCompatActivity() {
     private val C_BORDE = Color.parseColor("#E5E7EB")
     private val C_VERDE = Color.parseColor("#059669")
     private val C_ROJO = Color.parseColor("#DC2626")
+    private val C_AMBAR = Color.parseColor("#D97706")
 
     private fun header(): LinearLayout {
         return LinearLayout(this).apply {

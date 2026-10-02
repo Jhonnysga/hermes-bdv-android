@@ -108,7 +108,29 @@ class HermesAccessibilityService : AccessibilityService() {
             ) ?: return false
             return habilitados.contains(contexto.packageName, ignoreCase = true)
         }
+
+        /** True si el servicio está realmente conectado (bound por el sistema). */
+        fun estaConectado(): Boolean = instancia != null
+
+        /**
+         * Estado real del servicio:
+         * - ACTIVO: habilitado en ajustes Y conectado al sistema.
+         * - HABILITADO_SIN_CONEXION: habilitado en ajustes pero el sistema
+         *   no lo ha conectado (requiere desactivar/reactivar).
+         * - INACTIVO: no habilitado en ajustes.
+         */
+        fun estadoServicio(contexto: Context): EstadoServicio {
+            val habilitado = estaHabilitado(contexto)
+            val conectado = estaConectado()
+            return when {
+                habilitado && conectado -> EstadoServicio.ACTIVO
+                habilitado -> EstadoServicio.HABILITADO_SIN_CONEXION
+                else -> EstadoServicio.INACTIVO
+            }
+        }
     }
+
+    enum class EstadoServicio { ACTIVO, HABILITADO_SIN_CONEXION, INACTIVO }
 
     // ------------------------------------------------------------------
     // Estado
