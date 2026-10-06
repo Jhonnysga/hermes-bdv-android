@@ -161,6 +161,9 @@ class HermesAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         instancia = this
         Log.i(TAG, "servicio conectado")
+        // Mantener el servicio fijo en segundo plano (foreground permanente):
+        // así el sistema no lo mata y no hay que reactivar accesibilidad.
+        pasarAPrimerPlano()
         // Escuchar la orden de detener (la emite MainActivity)
         try {
             val filtro = IntentFilter("com.hermes.bdv.DETENER")
@@ -197,26 +200,33 @@ class HermesAccessibilityService : AccessibilityService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val monto = intent?.getStringExtra(EXTRA_MONTO)?.trim().orEmpty()
+        // START_STICKY: si el sistema mata el servicio, lo recrea solo.
+        // Con intent null (reinicio del sistema) no se inicia flujo, solo
+        // se mantiene el servicio vivo en foreground.
+        if (intent == null) {
+            pasarAPrimerPlano()
+            return START_STICKY
+        }
+        val monto = intent.getStringExtra(EXTRA_MONTO)?.trim().orEmpty()
         // La clave se lee del almacén cifrado (preconfigurada por el usuario).
         // El intent puede traerla (compatibilidad), pero la fuente oficial es ClaveSegura.
-        val clave = intent?.getStringExtra(EXTRA_CLAVE).orEmpty()
+        val clave = intent.getStringExtra(EXTRA_CLAVE).orEmpty()
             .ifEmpty { ClaveSegura.leer(this) }
-        val hora = intent?.getStringExtra(EXTRA_HORA_OBJETIVO)?.trim().orEmpty()
+        val hora = intent.getStringExtra(EXTRA_HORA_OBJETIVO)?.trim().orEmpty()
 
         if (monto.isEmpty() || clave.isEmpty()) {
             notificar(TIPO_ERROR, "⚠ Faltan datos para ejecutar (monto/clave). Configura la clave en la app.")
-            return START_NOT_STICKY
+            return START_STICKY
         }
         if (!LogicaPura.validarMonto(monto)) {
             notificar(TIPO_ERROR, "⚠ Monto fuera de rango (1–500 USD): $monto")
-            return START_NOT_STICKY
+            return START_STICKY
         }
 
         synchronized(this) {
             if (hiloFlujo?.isAlive == true) {
                 Log.w(TAG, "ya hay un flujo en curso, se ignora el arranque")
-                return START_NOT_STICKY
+                return START_STICKY
             }
             montoActual = monto
             claveActual = clave
@@ -225,7 +235,7 @@ class HermesAccessibilityService : AccessibilityService() {
             pasarAPrimerPlano()
             hiloFlujo = Thread(::ejecutarFlujo, "hermes-flujo").also { it.start() }
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     // ------------------------------------------------------------------
@@ -250,8 +260,8 @@ class HermesAccessibilityService : AccessibilityService() {
         try {
             crearCanalNotificacion()
             val notif: Notification = NotificationCompat.Builder(this, CANAL_ID)
-                .setContentTitle("Hermes")
-                .setContentText("Ejecutando automatización de compra de divisas")
+                .setContentTitle("Hermes activo")
+                .setContentText("Servicio en segundo plano — listo para ejecutar")
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
                 .setOngoing(true)
                 .build()
@@ -1454,7 +1464,8 @@ class HermesAccessibilityService : AccessibilityService() {
             // Limpiar la clave de memoria al terminar
             claveActual = ""
             montoActual = ""
-            salirDePrimerPlano()
+            // NO salir de primer plano: el servicio queda fijo en segundo plano
+            // (foreground permanente) para que el sistema no lo mate.
             synchronized(this) {
                 if (Thread.currentThread() === hiloFlujo) hiloFlujo = null
             }
