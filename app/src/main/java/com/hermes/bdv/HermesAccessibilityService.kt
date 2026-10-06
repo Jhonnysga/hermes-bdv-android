@@ -1222,6 +1222,7 @@ class HermesAccessibilityService : AccessibilityService() {
      */
     private fun cicloCompra(): Boolean {
         var intentosCompra = 0
+        var ultimoTapCompra = 0L
         while (!detenido) {
             // ¿Ya abrió el formulario? (el tap anterior pudo funcionar)
             if (esFormCompra()) {
@@ -1230,17 +1231,33 @@ class HermesAccessibilityService : AccessibilityService() {
             }
             when (estadoCompra()) {
                 true -> {
-                    // ACTIVO: pulsar DE INMEDIATO, sin espera previa ni posterior
+                    // ACTIVO: pulsar DE INMEDIATO, sin espera previa
                     intentosCompra++
                     pulsarUnaVez(desc = "Compra", texto = "Compra")
-                    // El siguiente ciclo verifica si abrió; sin pausa aquí
+                    ultimoTapCompra = SystemClock.uptimeMillis()
+                    Log.i(TAG, "Compra pulsado (intento $intentosCompra)")
+                    // Gracia de 2.5s para que el formulario abra antes de
+                    // considerar re-pulsar Divisas (evita navegar fuera del form)
+                    val finGracia = ultimoTapCompra + 2_500
+                    while (SystemClock.uptimeMillis() < finGracia && !detenido) {
+                        if (esFormCompra()) {
+                            Log.i(TAG, "formulario abierto (intento $intentosCompra)")
+                            return true
+                        }
+                        esperar(200)
+                    }
                 }
                 else -> {
-                    // No visible o deshabilitado: pulsar Divisas DE INMEDIATO
-                    pulsarUnaVez(descContiene = "Divisas", texto = "Divisas")
+                    // Compra no visible o deshabilitado: solo re-pulsar Divisas
+                    // si pasó la gracia del último tap (no interrumpir apertura)
+                    val desdeUltimoTap = SystemClock.uptimeMillis() - ultimoTapCompra
+                    if (ultimoTapCompra == 0L || desdeUltimoTap > 2_500) {
+                        pulsarUnaVez(descContiene = "Divisas", texto = "Divisas")
+                    } else {
+                        esperar(200)
+                    }
                 }
             }
-            // Sin esperar(): ciclo apretado, el ritmo lo marca la UI
             if (esNoDisponible()) {
                 Log.i(TAG, "mercado no disponible, insistiendo")
             }
